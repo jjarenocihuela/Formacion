@@ -1,0 +1,69 @@
+#.github/workflows/ci-workflow.yml
+name: CI Deployment/Validation
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  formatting-and-linting:
+    runs-on: ubuntu-latest
+    steps:
+      # Checkout the code in the pull request
+      - name: 'Checkout source code'
+        uses: actions/checkout@v2
+
+      # Cache node_modules to speed up the process
+      - name: Restore node_modules cache
+        id: cache-npm
+        uses: actions/cache@v2
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+
+  build:
+    runs-on: ubuntu-latest
+    environment: FederateS
+    steps:
+      # Install Salesforce CLI
+      - name: Install Salesforce CLI
+        run: |
+          wget https://developer.salesforce.com/media/salesforce-cli/sfdx-linux-amd64.tar.xz
+          mkdir sfdx-cli
+          tar xJf sfdx-linux-amd64.tar.xz -C sfdx-cli --strip-components 1
+          ./sfdx-cli/install
+
+      # Set SFDX API Version
+      - name: Set SFDX API Version
+        run: 'sfdx force:config:set apiVersion=${{secrets.SFDX_API_VERSION}} --global'
+
+      # Echo Salesforce confg
+      - name: Check Salesforce CLI config
+        run: 'sfdx force:config:list'
+
+      # This action checks-out your repository under $GITHUB_WORKSPACE, so your workflow can access it.
+      - name: 'Checkout source code'
+        uses: actions/checkout@v2
+
+      # Git Fetch
+      - name: Git Pull
+        run: |
+          git pull --all
+
+      # Display Current branch
+      - name: Display Current branch
+        run: 'git rev-parse --abbrev-ref HEAD'
+
+      # Store secret for dev hub
+      - name: 'Populate auth file with CIORG_SFDX_URL secret'
+        shell: bash
+        run: 'echo ${{ secrets.SFDX_FORMACION}} > ./SFDX_FORMACION.txt'
+
+      # Authenticate CI ORG
+      - name: 'Authenticate CI ORG'
+        run: 'sfdx auth:sfdxurl:store -f ./SFDX_FORMACION.txt -a formacion -d'
+
+      - name: Deploy the Whole Repo
+        run: sfdx force:source:deploy --sourcepath force-app/main --testlevel=NoTestRun -w60 -u formacion --json --loglevel fatal
